@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Interactive demo of the MIPS32 cryptographic memory maze: prime walls, XOR + rotate cipher, decryption and ID recovery.">
+<title>Cryptographic Memory Maze (MIPS32 demo)</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#dedacd;--card:#d2cdbe;--border:rgba(30,28,18,.18);--text:#1f1e18;--muted:#5e5946;--accent:#8a7250;--on:#1f1e18;--onfg:#dedacd;--bad:#a63d2f;--good:#3f6b45}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#2b2c31;--card:#3c3d44;--border:rgba(255,255,255,.16);--text:#f5f5f0;--muted:#b0aea4;--accent:#c8c0b0;--on:#f5f5f0;--onfg:#2b2c31;--bad:#e07a6a;--good:#8cc796}}
+:root[data-theme="dark"]{--bg:#2b2c31;--card:#3c3d44;--border:rgba(255,255,255,.16);--text:#f5f5f0;--muted:#b0aea4;--accent:#c8c0b0;--on:#f5f5f0;--onfg:#2b2c31;--bad:#e07a6a;--good:#8cc796}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*,*::before,*::after{box-sizing:inherit;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;font-weight:300;line-height:1.5;padding:28px 20px 48px}
+main{max-width:900px;margin:0 auto}
+h1{font-family:"Cormorant Garamond",Georgia,serif;font-weight:400;font-size:clamp(32px,7vw,48px);letter-spacing:-.01em;padding-right:44px}
+.sub{color:var(--muted);margin:6px 0 24px;font-size:14px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.lbl{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:13px}
+button{font:inherit;font-weight:400;font-size:14px;color:var(--text);background:transparent;border:1px solid var(--border);border-radius:999px;padding:7px 14px;cursor:pointer;transition:border-color .2s,background .2s}
+button:hover{border-color:var(--accent)}
+button.sel{background:var(--on);color:var(--onfg);border-color:var(--on)}
+input{font:inherit;font-family:ui-monospace,Menlo,monospace;font-size:16px;letter-spacing:.12em;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:7px 16px;width:160px}
+input:focus{outline:none;border-color:var(--accent)}
+.hint{font-size:12px;color:var(--muted)}
+.info{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted);margin-top:12px}
+.ok{color:var(--good)}.bad{color:var(--bad)}
+.scroll{overflow-x:auto;padding-bottom:6px}
+.grid{display:grid;grid-template-columns:24px repeat(16,54px);gap:3px;width:max-content;font-family:ui-monospace,Menlo,monospace}
+.grid .ax{font-size:10px;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.cell{height:30px;font-size:10px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:5px;cursor:pointer;user-select:none;transition:border-color .12s}
+.cell:hover{border-color:var(--accent)}
+.cell.w{background:transparent;color:var(--muted);font-size:12px;opacity:.7}
+.cell.s{outline:2px solid var(--accent);outline-offset:1px}
+.pre{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;white-space:pre;overflow-x:auto;line-height:1.7}
+.pre b{color:var(--accent);font-weight:700}
+.pre .hd{font-family:Inter,system-ui,sans-serif;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.strip{display:flex;flex-wrap:wrap;gap:3px;margin:4px 0 12px}
+.strip span{font-family:ui-monospace,Menlo,monospace;font-size:11px;width:28px;height:26px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:5px;color:var(--muted)}
+.strip span.p{background:var(--on);color:var(--onfg);border-color:var(--on)}
+.cand{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.8;white-space:pre;overflow-x:auto}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px}
+</style>
+</head>
+<body>
+<main>
+<h1 style="padding-right:0">Cryptographic memory maze</h1>
+<p class="sub">Enter an 8-digit ID. It decides where the walls go and keys the cipher that hides every open cell's position inside a 32-bit word: <span class="mono">rotl(((x&lt;&lt;16 | y) XOR ID), ID % 32)</span>. Everything below is computed live with real 32-bit arithmetic.</p>
+
+<div class="card">
+<div class="lbl">ID</div>
+<div class="row">
+<input id="id" inputmode="numeric" maxlength="8" spellcheck="false" autocomplete="off" aria-label="8-digit ID">
+<button id="rnd">Random</button>
+<span style="width:8px"></span>
+<button id="mEnc" class="sel">Encrypted</button>
+<button id="mDec">Decrypted</button>
+</div>
+<div class="info" id="meta"></div>
+</div>
+
+<div class="card">
+<div class="lbl">Grid, uint32_t grid[16][16] &middot; click a cell</div>
+<div class="scroll"><div class="grid" id="grid"></div></div>
+<div class="legend hint"><span>X = wall: <span class="mono">ID % prime[x] == 0</span> or <span class="mono">ID % prime[y] == 0</span></span><span>otherwise the cell stores its 32-bit cipher</span></div>
+</div>
+
+<div class="card"><div class="lbl" id="stitle">Cell</div><div class="pre" id="steps"></div></div>
+
+<div class="card">
+<div class="lbl">Reverse engineering the ID</div>
+<p class="hint" id="rdesc" style="margin-bottom:10px"></p>
+<div class="strip" id="strip"></div>
+<div class="cand" id="cand"></div>
+</div>
+
+<div class="card"><div class="lbl">C</div><div class="pre" id="csn">uint32_t rotl(uint32_t v, unsigned r) { r &amp;= 31; return (v &lt;&lt; r) | (v &gt;&gt; ((32 - r) &amp; 31)); }
+uint32_t rotr(uint32_t v, unsigned r) { return rotl(v, (32 - r) &amp; 31); }
+
+uint32_t encrypt(uint32_t x, uint32_t y, uint32_t id) {
+    return rotl(((x &lt;&lt; 16) | y) ^ id, id % 32);
+}
+void decrypt(uint32_t c, uint32_t id, uint32_t *x, uint32_t *y) {
+    uint32_t t = rotr(c, id % 32) ^ id;
+    *x = (t &gt;&gt; 16) &amp; 0xFFFF;
+    *y = t &amp; 0xFFFF;
+}</div></div>
+
+<div class="card"><div class="lbl">MIPS32 (spim, no rotate instruction, so rotate = two shifts and an or)</div><div class="pre">                        # $a0 = x, $a1 = y, $s0 = ID
+sll  $t0, $a0, 16
+or   $t0, $t0, $a1      # x&lt;&lt;16 | y
+xor  $t0, $t0, $s0      # ^ ID
+andi $t1, $s0, 31       # r = ID % 32
+sllv $t2, $t0, $t1      # v &lt;&lt; r
+li   $t3, 32
+subu $t3, $t3, $t1
+srlv $t3, $t0, $t3      # v &gt;&gt; (32 - r)   (shift amount is taken mod 32)
+or   $v0, $t2, $t3      # $v0 = cipher</div></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const PR=[2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53];
+const hex=v=>(v>>>0).toString(16).toUpperCase().padStart(8,'0');
+const rotl=(v,r)=>{r&=31;return((v<<r)|(v>>>((32-r)&31)))>>>0};
+const rotr=(v,r)=>rotl(v,(32-r)&31);
+let ID=12345678,mode='enc',sel={x:3,y:7};
+const wall=(x,y)=>ID%PR[y]===0||ID%PR[x]===0;
+const enc=(x,y,id=ID)=>rotl((((x<<16)|y)^id)>>>0,id%32);
+const dec=(c,id=ID)=>{const t=(rotr(c,id%32)^id)>>>0;return{t,x:(t>>>16)&0xFFFF,y:t&0xFFFF}};
+function bstr(v,top,low){
+  let s='';
+  for(let b=31;b>=0;b--){const bit=(v>>>b)&1,w=(top&&b>=32-top)||(low&&b<low);s+=w?'<b>'+bit+'</b>':bit;if(b%8===0&&b)s+=' '}
+  return s;
+}
+const L=(a,b,c)=>a.padEnd(14).replace(/</g,'&lt;')+b+(c?'   '+c:'')+'\n';
+const openCells=()=>{const a=[];for(let y=0;y<16;y++)for(let x=0;x<16;x++)if(!wall(x,y))a.push([x,y]);return a};
+
+function renderGrid(){
+  let h='<span class="ax"></span>';
+  for(let x=0;x<16;x++)h+='<span class="ax">'+x+'</span>';
+  for(let y=0;y<16;y++){
+    h+='<span class="ax">'+y+'</span>';
+    for(let x=0;x<16;x++){
+      const s=sel.x===x&&sel.y===y?' s':'';
+      if(wall(x,y))h+='<div class="cell w'+s+'" data-x="'+x+'" data-y="'+y+'">X</div>';
+      else{
+        const c=enc(x,y),d=dec(c),txt=mode==='enc'?hex(c):d.x+','+d.y;
+        h+='<div class="cell'+s+'" data-x="'+x+'" data-y="'+y+'" style="background:hsl('+((c>>>20)%360)+' 32% 50% / .2)" title="('+x+', '+y+') = 0x'+hex(c)+'">'+txt+'</div>';
+      }
+    }
+  }
+  $('grid').innerHTML=h;
+}
+function renderMeta(){
+  const div=PR.map((p,i)=>ID%p===0?p+' (index '+i+')':null).filter(Boolean);
+  const cells=openCells();let okc=0;
+  cells.forEach(([x,y])=>{const d=dec(enc(x,y));if(d.x===x&&d.y===y)okc++});
+  $('meta').innerHTML='ID % 32 = <b>'+(ID%32)+'</b> (rotation r) &middot; ID is divisible by: '+(div.length?div.join(', ')+' &rarr; those rows and columns are walls':'none of the first 16 primes, so no walls')
+    +'<br>'+cells.length+' open cells, '+(256-cells.length)+' walls &middot; <span class="'+(okc===cells.length?'ok':'bad')+'">'+okc+'/'+cells.length+' cells decrypt back to their (x, y)</span>';
+}
+function renderSteps(){
+  const {x,y}=sel,box=$('steps');
+  $('stitle').textContent='Cell ('+x+', '+y+')';
+  if(wall(x,y)){
+    const why=[];if(ID%PR[y]===0)why.push('ID % prime[y='+y+'] = ID % '+PR[y]+' = 0');if(ID%PR[x]===0)why.push('ID % prime[x='+x+'] = ID % '+PR[x]+' = 0');
+    box.textContent='wall, stored as "X", nothing is encrypted.\n'+why.join('\n');return;
+  }
+  const r=ID%32,p=((x<<16)|y)>>>0,xr=(p^ID)>>>0,c=rotl(xr,r),t1=rotr(c,r),d=dec(c);
+  let h='<span class="hd">Encrypt</span>\n';
+  h+=L('x<<16 | y',bstr(p),'x='+x+', y='+y);
+  h+=L('ID',bstr(ID>>>0),String(ID));
+  h+=L('XOR',bstr(xr),r?'top '+r+' bits will wrap around':'');
+  h+=L('rotl by '+r,bstr(c,0,r),'= 0x'+hex(c));
+  h+='\n<span class="hd">Decrypt</span>\n';
+  h+=L('cipher',bstr(c,0,r));
+  h+=L('rotr by '+r,bstr(t1));
+  h+=L('XOR ID',bstr(d.t));
+  h+='x = (t &gt;&gt; 16) &amp; 0xFFFF = <b>'+d.x+'</b>\ny = t &amp; 0xFFFF         = <b>'+d.y+'</b>   <span class="'+(d.x===x&&d.y===y?'ok':'bad')+'">'+(d.x===x&&d.y===y?'matches':'MISMATCH')+'</span>';
+  box.innerHTML=h;
+}
+function renderRecover(){
+  const cells=openCells(),strip=$('strip'),cand=$('cand');
+  if(!cells.length){strip.innerHTML='';cand.textContent='Every cell is a wall, so there is nothing to attack.';$('rdesc').textContent='';return}
+  const A=wall(sel.x,sel.y)?cells[0]:[sel.x,sel.y];
+  const B=cells.slice().reverse().find(c=>c[0]!==A[0]||c[1]!==A[1]);
+  const cA=enc(A[0],A[1]),pA=((A[0]<<16)|A[1])>>>0;
+  $('rdesc').innerHTML='Attacker knows cell ('+A+') holds <span class="mono">0x'+hex(cA)+'</span>. The unknown rotation R = ID % 32 has only 32 values, so try them all: '
+    +'<span class="mono">ID = rotr(cell, R) XOR (x&lt;&lt;16 | y)</span>, and keep R only if the result satisfies <span class="mono">ID % 32 == R</span>.';
+  let sh='';const pass=[];
+  for(let R=0;R<32;R++){
+    const id=(rotr(cA,R)^pA)>>>0,ok=id%32===R;
+    if(ok)pass.push({R,id});
+    sh+='<span class="'+(ok?'p':'')+'" title="R='+R+' &rarr; '+id+'">'+R+'</span>';
+  }
+  strip.innerHTML=sh;
+  let h='<b>'+pass.length+'</b> of 32 rotations pass the self-consistency check.\n';
+  let left=pass;
+  if(B){
+    const cB=enc(B[0],B[1]);
+    h+='Filter with a second cell ('+B+') = 0x'+hex(cB)+': a real ID must reproduce it too.\n\n';
+    left=[];
+    pass.forEach(k=>{
+      const ok=enc(B[0],B[1],k.id)===cB;if(ok)left.push(k);
+      h+='R='+String(k.R).padStart(2)+'  ID='+String(k.id).padStart(10)+'  '+(ok?'<span class="ok">reproduces cell ('+B+')</span>':'<span class="bad">rejected</span>')+'\n';
+    });
+  }
+  h+='\n'+(left.length===1?'Recovered ID = <b>'+left[0].id+'</b> <span class="'+(left[0].id===ID?'ok':'bad')+'">'+(left[0].id===ID?'(correct)':'(wrong?)')+'</span>':left.length+' candidates left, need more cells.');
+  cand.innerHTML=h;
+}
+function renderAll(){
+  if(wall(sel.x,sel.y)){const o=openCells();if(o.length)sel={x:o[0][0],y:o[0][1]}}
+  renderGrid();renderMeta();renderSteps();renderRecover();
+}
+function setID(v){ID=v;renderAll()}
+$('id').oninput=e=>{
+  const s=e.target.value.replace(/\D/g,'');if(s!==e.target.value)e.target.value=s;
+  if(s.length)setID(parseInt(s,10));
+};
+$('rnd').onclick=()=>{const v=10000000+Math.floor(Math.random()*90000000);$('id').value=v;setID(v)};
+$('mEnc').onclick=()=>{mode='enc';$('mEnc').className='sel';$('mDec').className='';renderGrid()};
+$('mDec').onclick=()=>{mode='dec';$('mDec').className='sel';$('mEnc').className='';renderGrid()};
+$('grid').onclick=e=>{
+  const c=e.target.closest('.cell');if(!c)return;
+  sel={x:+c.dataset.x,y:+c.dataset.y};renderGrid();renderSteps();renderRecover();
+};
+$('id').value=ID;renderAll();
+</script>
+</body>
+</html>
